@@ -20,6 +20,35 @@ def order_points(pts):
     rect[3] = pts[np.argmax(diff)]    # bottom-left
     return rect
 
+def find_sudoku_contour(img):
+    print("Attempting to find Sudoku contour...")
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 11, 2
+    )
+
+    contours, _ = cv2.findContours(
+        thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    for cnt in contours:
+        if cv2.contourArea(cnt) < 5000:
+            continue
+
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+
+        if len(approx) == 4:
+            return approx  # FOUND A CROPPABLE SUDOKU
+
+    return None
+
+
 def warp_sudoku(image, contour):
     rect = order_points(contour)
     # Use a fixed size for the output for consistency (e.g., 450x450)
@@ -142,8 +171,12 @@ def preprocess_image(image):
     Args:
         image: The input image in cv2 format.
     """
-    img = cv2.resize(image, (500, 500))
-    blurred = cv2.GaussianBlur(img, (5, 5), 0)
+    img = cv2.resize(image, (450, 450))
+    if len(img.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img.copy()
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     binary = cv2.adaptiveThreshold(
         blurred,
         255,
@@ -160,22 +193,64 @@ def preprocess_image(image):
     
     return binary
 
-if __name__ == "__main__":
-    image_path = "full puzzle1.jpeg"  # Replace with your image path
-    try:
-        img = load_image(image_path)
-        
+def load_and_extract_sudoku(image_path):
+    """
+    Load an image and extract a validated Sudoku grid.
+    
+    Returns:
+        img (np.ndarray): The final Sudoku image (cropped if needed)
+        grid (np.ndarray): The extracted grid image
+        valid (bool): Whether the structure matches a Sudoku grid
+    """
+    # Load image
+    img = load_image(image_path)
+
+    croppable_contour = find_sudoku_contour(img)
+    if croppable_contour is not None:
+        img = find_and_crop_sudoku(img)
+        grid = get_full_grid(img, greyscale=True)
+        valid = validate_sudoku_structure(cv2.bitwise_not(grid))
+    else:
         grid = get_full_grid(img)
         valid = validate_sudoku_structure(cv2.bitwise_not(grid))
-        if not valid:
-            img = find_and_crop_sudoku(img)
-            grid2 = get_full_grid(img, greyscale=True)
-            valid = validate_sudoku_structure(cv2.bitwise_not(grid2))
-        
-        print(f"Full grid extraction successful. Is it a valid Sudoku structure? {valid}")
-        print("Sudoku grid successfully extracted and displayed.")
 
+    # # First attempt: assume image already contains the grid
+    # grid = get_full_grid(img)
+    # valid = validate_sudoku_structure(cv2.bitwise_not(grid))
+
+    # # Fallback: find, crop, and retry
+    # if not valid:
+    #     img = find_and_crop_sudoku(img)
+    #     grid = get_full_grid(img, greyscale=True)
+    #     valid = validate_sudoku_structure(cv2.bitwise_not(grid))
+    
+    img = cv2.resize(img, (450, 450))
+
+    print(f"Full grid extraction successful. Is it a valid Sudoku structure? {valid}")
+    print("Sudoku grid successfully extracted and displayed.")
+
+    plt.figure(figsize=(4, 4))
+    plt.imshow(img, cmap='gray')
+    plt.title(f"img")
+    plt.axis('off')
+    plt.show()
+
+    plt.figure(figsize=(4, 4))
+    plt.imshow(grid, cmap='gray')
+    plt.title(f"Grid")
+    plt.axis('off')
+    plt.show()
+
+    if valid:
         processed_img = preprocess_image(img)
+        return processed_img, grid, valid
+    
+    raise ValueError("No valid Sudoku grid detected.")
+
+if __name__ == "__main__":
+    image_path = "full puzzle1.png"  # Replace with your image path
+    try:
+        img, grid, valid = load_and_extract_sudoku(image_path)
     except Exception as e:
         print(f"Error: {e}")
 
