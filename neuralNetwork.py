@@ -8,9 +8,11 @@ import json
 import os
 from pathlib import Path
 import numpy as np
-from matplotlib import pyplot as plt
+from matplotlib import image, pyplot as plt
+import cv2
 import time
 from PIL import Image, ImageFilter
+from dataGenerator import SudokuDataGenerator
 
 
 class NeuralNetwork:
@@ -28,7 +30,8 @@ class NeuralNetwork:
         self.nr_correct = 0
         self.count = 0
         self.globalAccuracy = None
-        self.learning_rate = 0.01
+        self.learning_rate = 0.001
+        self.initial_lr = 0.001
 
         self.input_neurons = 28 * 28  # 784 input neurons for 28x28 pixel images
         self.hidden_neurons = 128  # number of hidden neurons
@@ -79,7 +82,7 @@ class NeuralNetwork:
             label_data = f.read(num_labels)
             labels = np.frombuffer(label_data, dtype=np.uint8)
         return labels
-    
+
     def generate_blank_cell(
         self,
         size=28,
@@ -168,15 +171,15 @@ class NeuralNetwork:
         self.training_images = train_images
         self.training_labels = train_labels
 
-        # blank_images, blank_labels = self.generate_blank_dataset(6000)
+        blank_images, blank_labels = self.generate_blank_dataset(6000)
 
-        # self.training_images = np.vstack([train_images, blank_images])
-        # self.training_labels = np.concatenate([train_labels, blank_labels])
+        self.training_images = np.vstack([train_images, blank_images])
+        self.training_labels = np.concatenate([train_labels, blank_labels])
 
-        # self.training_images, self.training_labels = self.shuffle_dataset(
-        #     self.training_images,
-        #     self.training_labels
-        # )
+        self.training_images, self.training_labels = self.shuffle_dataset(
+            self.training_images,
+            self.training_labels
+        )
     #done    
     def Read_Files_Testing(self):
         """
@@ -189,15 +192,270 @@ class NeuralNetwork:
         self.testing_images = test_images
         self.testing_labels = test_labels
 
-        # blank_images, blank_labels = self.generate_blank_dataset(1000)
+        blank_images, blank_labels = self.generate_blank_dataset(1000)
 
-        # self.testing_images = np.vstack([test_images, blank_images])
-        # self.testing_labels = np.concatenate([test_labels, blank_labels])
+        self.testing_images = np.vstack([test_images, blank_images])
+        self.testing_labels = np.concatenate([test_labels, blank_labels])
 
-        # self.testing_images, self.testing_labels = self.shuffle_dataset(
-        #     self.testing_images,
-        #     self.testing_labels
-        # )
+        self.testing_images, self.testing_labels = self.shuffle_dataset(
+            self.testing_images,
+            self.testing_labels
+        )
+
+    def Train_with_synthetic_sudoku(self, n_samples=6000, epochs=100):
+        """
+        Train the neural network using synthetic Sudoku data
+        """
+      
+        # Generate synthetic dataset
+        generator = SudokuDataGenerator(fonts_folder="fonts")
+        synthetic_images, synthetic_labels = generator.generate_dataset(
+            n_samples_per_digit=n_samples,
+            include_blank=True
+        )
+        
+        # Combine with MNIST if desired
+        # self.Read_Files_Training()  # Load MNIST first
+        # self.training_images = np.vstack([self.training_images, synthetic_images])
+        # self.training_labels = np.concatenate([self.training_labels, synthetic_labels])
+        
+        # Or train ONLY on synthetic data
+        self.training_images = synthetic_images
+        self.training_labels = synthetic_labels
+        
+        # Initialize weights and train
+        self.Weight_Initialization()
+        self.TrainingLoop(epochs=epochs, required_success=98.0)
+
+    def Load_Synthetic_Training(self, images_path='sudoku_synthetic_images.npy', 
+                             labels_path='sudoku_synthetic_labels.npy'):
+        """
+        Load pre-generated synthetic Sudoku training dataset
+        
+        Args:
+            images_path: Path to .npy file containing training images
+            labels_path: Path to .npy file containing training labels
+        """
+        print(f"Loading synthetic training data from {images_path}...")
+        self.training_images = np.load(images_path)
+        self.training_labels = np.load(labels_path)
+        
+        print(f"Training images loaded: {self.training_images.shape}")
+        print(f"Training labels loaded: {self.training_labels.shape}")
+        
+        # Shuffle the dataset
+        self.training_images, self.training_labels = self.shuffle_dataset(
+            self.training_images,
+            self.training_labels
+        )
+        print("Dataset shuffled successfully")
+
+    def Load_Synthetic_Testing(self, images_path='sudoku_test_images.npy',
+                                labels_path='sudoku_test_labels.npy'):
+        """
+        Load pre-generated synthetic Sudoku test dataset
+        
+        Args:
+            images_path: Path to .npy file containing test images
+            labels_path: Path to .npy file containing test labels
+        """
+        print(f"Loading synthetic test data from {images_path}...")
+        self.testing_images = np.load(images_path)
+        self.testing_labels = np.load(labels_path)
+        
+        print(f"Test images loaded: {self.testing_images.shape}")
+        print(f"Test labels loaded: {self.testing_labels.shape}")
+
+    def Test_Synthetic_Sudoku(self, show_errors=True, show_confusion_matrix=True):
+        """
+        Test the neural network on synthetic Sudoku dataset with detailed metrics
+        
+        Args:
+            show_errors: If True, print misclassified examples
+            show_confusion_matrix: If True, display confusion matrix
+        
+        Returns:
+            accuracy: Overall accuracy percentage
+        """
+        print("\n" + "=" * 60)
+        print("TESTING ON SYNTHETIC SUDOKU DATASET")
+        print("=" * 60)
+        
+        correct = 0
+        total = len(self.testing_images)
+        
+        # Track predictions for confusion matrix
+        predictions = []
+        true_labels = []
+        errors = []
+        
+        # Per-digit accuracy tracking
+        digit_correct = {i: 0 for i in range(1, 11)}  # 1-9 + 10 (blank)
+        digit_total = {i: 0 for i in range(1, 11)}
+        
+        print(f"\nTesting {total} images...")
+        
+        for i in range(total):
+            # Update input and targets
+            self.Update_InputTargets(self.testing_images[i], self.testing_labels[i])
+            
+            # Forward propagation
+            out_j = self.Forward_Input_Hidden()
+            out_k = self.Forward_Hidden_Output(out_j)
+            
+            # Get prediction
+            predicted_label = np.argmax(out_k)
+            confidence = out_k[predicted_label, 0]
+            true_label = self.testing_labels[i]
+            
+            predictions.append(predicted_label)
+            true_labels.append(true_label)
+            
+            # Update counters
+            digit_total[true_label] += 1
+            
+            if predicted_label == true_label:
+                correct += 1
+                digit_correct[true_label] += 1
+            else:
+                # Store error details
+                errors.append({
+                    'index': i,
+                    'true': true_label,
+                    'predicted': predicted_label,
+                    'confidence': confidence
+                })
+            
+            # Progress indicator
+            if (i + 1) % 200 == 0:
+                print(f"  Processed {i + 1}/{total} images...")
+        
+        # Calculate overall accuracy
+        accuracy = (correct / total) * 100
+        
+        # Print results
+        print("\n" + "=" * 60)
+        print("TEST RESULTS")
+        print("=" * 60)
+        print(f"Overall Accuracy: {accuracy:.2f}% ({correct}/{total})")
+        print(f"Errors: {len(errors)}")
+        
+        # Per-digit accuracy
+        print("\n" + "-" * 60)
+        print("PER-DIGIT ACCURACY")
+        print("-" * 60)
+        print(f"{'Digit':<10} {'Correct':<10} {'Total':<10} {'Accuracy':<10}")
+        print("-" * 60)
+        
+        for digit in range(1, 11):
+            if digit_total[digit] > 0:
+                digit_acc = (digit_correct[digit] / digit_total[digit]) * 100
+                digit_name = "Blank" if digit == 10 else str(digit)
+                print(f"{digit_name:<10} {digit_correct[digit]:<10} {digit_total[digit]:<10} {digit_acc:.2f}%")
+        
+        # Show sample errors
+        if show_errors and errors:
+            print("\n" + "-" * 60)
+            print(f"SAMPLE ERRORS (showing first 10 of {len(errors)})")
+            print("-" * 60)
+            print(f"{'Index':<8} {'True':<8} {'Predicted':<12} {'Confidence':<12}")
+            print("-" * 60)
+            
+            for error in errors[:10]:
+                true_name = "Blank" if error['true'] == 10 else str(error['true'])
+                pred_name = "Blank" if error['predicted'] == 10 else str(error['predicted'])
+                print(f"{error['index']:<8} {true_name:<8} {pred_name:<12} {error['confidence']:.4f}")
+        
+        # Confusion matrix
+        if show_confusion_matrix:
+            self._plot_confusion_matrix(true_labels, predictions)
+        
+        return accuracy
+
+    def _plot_confusion_matrix(self, true_labels, predictions):
+        """
+        Plot confusion matrix for test results
+        
+        Args:
+            true_labels: List of true labels
+            predictions: List of predicted labels
+        """
+        import matplotlib.pyplot as plt
+        
+        # Create confusion matrix
+        classes = list(range(1, 11))  # 1-9 + 10 (blank)
+        n_classes = len(classes)
+        confusion = np.zeros((n_classes, n_classes), dtype=int)
+        
+        for true, pred in zip(true_labels, predictions):
+            true_idx = true - 1
+            pred_idx = pred - 1
+            confusion[true_idx, pred_idx] += 1
+        
+        # Plot
+        fig, ax = plt.subplots(figsize=(10, 8))
+        im = ax.imshow(confusion, cmap='Blues')
+        
+        # Labels
+        class_names = [str(i) for i in range(1, 10)] + ['Blank']
+        ax.set_xticks(np.arange(n_classes))
+        ax.set_yticks(np.arange(n_classes))
+        ax.set_xticklabels(class_names)
+        ax.set_yticklabels(class_names)
+        
+        # Rotate the tick labels
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+        
+        # Add text annotations
+        for i in range(n_classes):
+            for j in range(n_classes):
+                text = ax.text(j, i, confusion[i, j],
+                            ha="center", va="center", 
+                            color="white" if confusion[i, j] > confusion.max() / 2 else "black")
+        
+        ax.set_title("Confusion Matrix - Synthetic Sudoku Test")
+        ax.set_ylabel('True Label')
+        ax.set_xlabel('Predicted Label')
+        
+        plt.colorbar(im, ax=ax)
+        plt.tight_layout()
+        plt.show()
+
+    def Train_On_Synthetic_Sudoku(self, epochs=100, required_success=97.5, 
+                                load_from_file=True):
+        """
+        Complete training pipeline for synthetic Sudoku data
+        
+        Args:
+            epochs: Maximum number of training epochs
+            required_success: Target accuracy to stop training
+            load_from_file: If True, load from .npy files, else generate new dataset
+        """
+        print("\n" + "=" * 60)
+        print("TRAINING ON SYNTHETIC SUDOKU DATASET")
+        print("=" * 60)
+        
+        if load_from_file:
+            # Load pre-generated dataset
+            self.Load_Synthetic_Training()
+        else:
+            # Generate new dataset
+            generator = SudokuDataGenerator(fonts_folder="fonts")
+            
+            train_images, train_labels = generator.generate_dataset(
+                n_samples_per_digit=1000,
+                include_blank=True
+            )
+            
+            self.training_images = train_images
+            self.training_labels = train_labels
+        
+        # Initialize weights and train
+        self.Weight_Initialization()
+        self.TrainingLoop(epochs=epochs, required_success=required_success)
+        
+        # Save the trained model
+        self.Saving_Weights_Bias()
 
     def image_resize(self):
         """
@@ -235,13 +493,18 @@ class NeuralNetwork:
         self.targets = np.zeros((self.output_neurons, 1))
         self.targets[label, 0] = 1
     #done      
-    def Forward_Input_Hidden(self):
+    def Forward_Input_Hidden(self, training=False, dropout_rate=0.3):
         """
         The calculations for the net_j and out_j value at each hidden neuron. This is the forward propagation step
         from the input to hidden layer
         """
         net_j = self.bias_j + self.wji @ self.x
         out_j = np.maximum(0, net_j)  # ReLU function
+
+        if training:
+            # Apply dropout during training
+            mask = np.random.binomial(1, 1-dropout_rate, out_j.shape) / (1-dropout_rate)
+            out_j *= mask
 
         return out_j
     #done     
@@ -309,7 +572,102 @@ class NeuralNetwork:
         self.wji += -self.learning_rate * delta_h @ np.transpose(self.x)
         self.bias_j += -self.learning_rate * delta_h
     
-    def TrainingLoop(self, epochs=1000, required_success=99.95):
+    def augment_image(self, image):
+        """
+        Apply random augmentations to make training more robust
+        Uses only numpy and cv2 (already imported)
+        """
+        img = image.reshape(28, 28)
+        
+        # Random rotation (-15 to +15 degrees)
+        if np.random.rand() > 0.5:
+            angle = np.random.uniform(-15, 15)
+            center = (14, 14)
+            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+            img = cv2.warpAffine(img, M, (28, 28), borderValue=0)
+        
+        # Random scaling (0.85 to 1.15)
+        if np.random.rand() > 0.5:
+            scale = np.random.uniform(0.85, 1.15)
+            new_size = int(28 * scale)
+            if new_size < 1:
+                new_size = 1
+            scaled = cv2.resize(img, (new_size, new_size))
+            
+            # Center crop/pad to 28x28
+            if new_size > 28:
+                start = (new_size - 28) // 2
+                img = scaled[start:start+28, start:start+28]
+            else:
+                canvas = np.zeros((28, 28))
+                start = (28 - new_size) // 2
+                canvas[start:start+new_size, start:start+new_size] = scaled
+                img = canvas
+        
+        # Random translation (shift by -3 to +3 pixels)
+        if np.random.rand() > 0.5:
+            shift_x = np.random.randint(-3, 4)
+            shift_y = np.random.randint(-3, 4)
+            M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+            img = cv2.warpAffine(img, M, (28, 28), borderValue=0)
+        
+        # Elastic deformation (using only NumPy and OpenCV)
+        if np.random.rand() > 0.7:
+            img = self.elastic_transform_cv2(img, alpha=8, sigma=3)
+        
+        # Random noise
+        if np.random.rand() > 0.5:
+            noise = np.random.normal(0, 0.05, img.shape)
+            img = np.clip(img + noise, 0, 1)
+        
+        # Random brightness adjustment
+        if np.random.rand() > 0.5:
+            brightness = np.random.uniform(0.8, 1.2)
+            img = np.clip(img * brightness, 0, 1)
+        
+        return img.reshape(-1, 1)
+
+    def elastic_transform_cv2(self, image, alpha, sigma):
+        """
+        Elastic deformation using only NumPy and OpenCV
+        
+        Args:
+            image: 28x28 grayscale image (0-1 range)
+            alpha: intensity of deformation (higher = more warping)
+            sigma: smoothness of deformation (higher = smoother)
+        
+        Returns:
+            Warped image
+        """
+        # Generate random displacement fields
+        random_state = np.random.RandomState(None)
+        shape = image.shape
+        
+        # Create random displacement fields
+        dx = random_state.rand(*shape) * 2 - 1  # Range: -1 to 1
+        dy = random_state.rand(*shape) * 2 - 1
+        
+        # Smooth the displacement fields using Gaussian blur (this replaces scipy's gaussian_filter)
+        dx_smooth = cv2.GaussianBlur(dx, (0, 0), sigma)
+        dy_smooth = cv2.GaussianBlur(dy, (0, 0), sigma)
+        
+        # Scale by alpha
+        dx_smooth *= alpha
+        dy_smooth *= alpha
+        
+        # Create coordinate grids
+        x, y = np.meshgrid(np.arange(shape[1]), np.arange(shape[0]))
+        
+        # Add displacement to coordinates
+        map_x = (x + dx_smooth).astype(np.float32)
+        map_y = (y + dy_smooth).astype(np.float32)
+        
+        # Apply remapping (this replaces scipy's map_coordinates)
+        warped = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        
+        return warped
+
+    def TrainingLoop(self, epochs=1000, required_success=97.5):
         """
         This function will run the entire training loop until either of the required conditions are met, by carrying
         out forward propagation, then backward propagation, then weights and bias updates during every epoch.
@@ -323,20 +681,28 @@ class NeuralNetwork:
         self.requiredAccuracy = required_success
         
         # Then we are going to read all the training files and initialize the weights and biases that are required
-        self.Read_Files_Training()
+        # self.Read_Files_Training()
         self.Weight_Initialization()
 
         print("Starting Training Loop...")
 
         flag = True
         while flag:
+            self.learning_rate = self.initial_lr * (0.95 ** (self.count // 10))
             epoch_start = time.perf_counter()  # start timing
             for i in range(len(self.training_images)):
                 # First we will update the input neurons and the target outputs based on the current image and label
-                self.Update_InputTargets(self.training_images[i], self.training_labels[i])
+                # self.Update_InputTargets(self.training_images[i], self.training_labels[i])
+
+                # With:
+                if np.random.rand() > 0.5 and self.training_labels[i] != 10:  # Don't augment blanks
+                    augmented = self.augment_image(self.training_images[i])
+                    self.Update_InputTargets(augmented.flatten(), self.training_labels[i])
+                else:
+                    self.Update_InputTargets(self.training_images[i], self.training_labels[i])
 
                 # Then we will carry out forward propagation from input to hidden layer
-                out_j = self.Forward_Input_Hidden()
+                out_j = self.Forward_Input_Hidden(training=True)
 
                 # Then we will carry out forward propagation from hidden to output layer
                 out_k = self.Forward_Hidden_Output(out_j)
@@ -387,7 +753,7 @@ class NeuralNetwork:
                    'bias_k': self.bias_k.tolist()}
 
         # Write the data into a new text file to prevent from overriding any current files
-        with open('weights_and_biases_TEMP_noblank.txt', 'w') as file:
+        with open('weights_and_biases_IMPROVEDv2.txt', 'w') as file:
             file.write(json.dumps(details))
     
     def Use_Trained_Weights(self, file):
@@ -439,7 +805,7 @@ class NeuralNetwork:
             Correctness += (predicted_label == self.testing_labels[i]) * 1
         accuracy = (Correctness / len(self.testing_images)) * 100
         print(f"Test Accuracy: {accuracy}%")
-    
+
     def Get_Expected_Output(self,image_path, show=False):
         """
         This function will take in an input image, and run the pretrained neural network to see what is the expected
@@ -488,9 +854,34 @@ class NeuralNetwork:
             plt.axis("off")
             plt.show()
 
-        return "Blank" if predicted_label == 10 else str(predicted_label)
-        
-    
+        return "Blank" if predicted_label == 10 else str(predicted_label)      
+
+    # --- ADD THIS NEW METHOD TO NeuralNetwork Class ---
+    def predict_from_array(self, img_array):
+        """
+        Takes a 28x28 numpy array (uint8, 0-255), normalizes it, 
+        and returns the predicted digit.
+        """
+        # 1. Normalize to 0-1 range (Float)
+        img = img_array.astype(np.float32) / 255.0
+
+        # 2. Flatten to (784, 1) vector
+        self.x = img.reshape(-1, 1)
+
+        # 3. Forward Prop
+        out_j = self.Forward_Input_Hidden()
+        out_k = self.Forward_Hidden_Output(out_j)
+
+        # 4. Get Prediction
+        predicted_label = np.argmax(out_k)
+        confidence = out_k[predicted_label, 0]
+
+        # 5. Return 0 for "Blank" class (10) or the actual digit
+        if predicted_label == 10:
+            return 0, float(confidence)
+        else:
+            return int(predicted_label), float(confidence)
+
 if __name__ == "__main__":
     myNeuralNetwork = NeuralNetwork()
 
@@ -501,15 +892,20 @@ if __name__ == "__main__":
     # BEFORE I CAN RUN IT
 
     # myNeuralNetwork.TrainingLoop()
-    myNeuralNetwork.Use_Trained_Weights("weights_and_biases_TEMP_noblank.txt")
+    myNeuralNetwork.Use_Trained_Weights("weights_and_biases_IMPROVEDv2.txt")
     # myNeuralNetwork.Run_Test_Data()
 
+    # TRAIN WITH SYNTHETIC SUDOKU CELLS
+    # myNeuralNetwork.Train_On_Synthetic_Sudoku(epochs=1000, required_success=98.0, load_from_file=True)
+    myNeuralNetwork.Load_Synthetic_Testing()
+    myNeuralNetwork.Test_Synthetic_Sudoku(show_errors=True, show_confusion_matrix=True)
+
     # myNeuralNetwork.Use_Trained_Weights("weights_and_biases_TEMP.txt")
-    # myNeuralNetwork.Read_Files_Training()
-    result = myNeuralNetwork.Get_Expected_Output(
-        "test5.png",
-        show=True
-    )
+    # # myNeuralNetwork.Read_Files_Training()
+    # result = myNeuralNetwork.Get_Expected_Output(
+    #     "test19.png",
+    #     show=True
+    # )
 
     # print("Prediction:", result)
 
