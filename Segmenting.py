@@ -70,11 +70,11 @@ def remove_grid_from_warped(warped_img, grid_img):
         flags=cv2.INPAINT_TELEA
     )
 
-    plt.figure(figsize=(4, 4))
-    plt.imshow(removed, cmap='gray')
-    plt.title(f"Removed Grid")
-    plt.axis('off')
-    plt.show()
+    # plt.figure(figsize=(4, 4))
+    # plt.imshow(removed, cmap='gray')
+    # plt.title(f"Removed Grid")
+    # plt.axis('off')
+    # plt.show()
 
     return removed
 
@@ -116,7 +116,38 @@ def clean_cell(cell_img):
         
         # Calculate distance of this blob from the true center
         dist = np.sqrt((centerX - img_center_x)**2 + (centerY - img_center_y)**2)
+
+        x = stats[i, cv2.CC_STAT_LEFT]
+        y = stats[i, cv2.CC_STAT_TOP]
+        w_b = stats[i, cv2.CC_STAT_WIDTH]
+        h_b = stats[i, cv2.CC_STAT_HEIGHT]
         
+        # ---- Bounding-box center overlap check ----
+        center_margin = int(w_c * 0.15)  # 15% of cell width
+
+        center_x1 = img_center_x - center_margin
+        center_y1 = img_center_y - center_margin
+        center_x2 = img_center_x + center_margin
+        center_y2 = img_center_y + center_margin
+
+        # Bounding box extents
+        box_x1, box_y1 = x, y
+        box_x2, box_y2 = x + w_b, y + h_b
+
+        # Check overlap
+        if not (
+            box_x2 > center_x1 and
+            box_x1 < center_x2 and
+            box_y2 > center_y1 and
+            box_y1 < center_y2
+        ):
+            continue
+
+        # ---- NEW: Aspect ratio sanity check ----
+        aspect_ratio = w_b / h_b
+        if aspect_ratio < 0.2 or aspect_ratio > 5.0:
+            continue
+
         # LOGIC: 
         # 1. Must be big enough to be a digit
         # 2. Must be close enough to center (ignoring border noise)
@@ -135,11 +166,27 @@ def clean_cell(cell_img):
     digit_only = np.zeros(output.shape, dtype=np.uint8)
     digit_only[output == best_label] = 255
 
+    # ---- Center-density check ----
+    h_dig, w_dig = digit_only.shape
+
+    center_size = int(w_dig * 0.2)  # 20% center window
+    cx, cy = w_dig // 2, h_dig // 2
+
+    center_roi = digit_only[
+        cy - center_size//2 : cy + center_size//2,
+        cx - center_size//2 : cx + center_size//2
+    ]
+
+    white_ratio = np.count_nonzero(center_roi) / center_roi.size
+
+    if white_ratio < 0.02:  # 2% ink threshold
+        return np.zeros((28, 28), dtype=np.uint8)
+
     # --- CENTERING & RESIZING (Standard logic) ---
     coords = cv2.findNonZero(digit_only)
     x, y, w_d, h_d = cv2.boundingRect(coords)
     digit_crop = digit_only[y:y+h_d, x:x+w_d]
-    
+
     aspect_ratio = w_d / h_d
     if w_d > h_d:
         new_w = 20
@@ -158,6 +205,7 @@ def clean_cell(cell_img):
     
     return canvas
 
+
 def show_cells_grid(cells, title="All Cells", cols=9):
     rows = int(np.ceil(len(cells) / cols))
     plt.figure(figsize=(cols, rows))
@@ -175,7 +223,7 @@ def show_cells_grid(cells, title="All Cells", cols=9):
 
 
 if __name__ == "__main__":
-    image_path = "full puzzle2.png"
+    image_path = "hope.png"
     print(f"Starting extraction for {image_path}...")
 
     try:
