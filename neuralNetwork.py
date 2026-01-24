@@ -23,7 +23,12 @@ class NeuralNetwork:
         """
         Initializes all the global variables required for the neural network
         """
-        self.dataset_folder = os.path.join(Path.cwd(), "Datasets")
+        BASE_DIR = Path(__file__).resolve().parent
+        self.dataset_folder = BASE_DIR / "Datasets"
+        self.fonts_path = BASE_DIR / "Fonts"
+        self.WEIGHTS_DIR = BASE_DIR / "weights"
+        self.WEIGHTS_DIR.mkdir(exist_ok=True)
+        self.DATA_DIR = BASE_DIR / "data"
 
         self.epoch = None
         self.requiredAccuracy = None
@@ -208,7 +213,7 @@ class NeuralNetwork:
         """
       
         # Generate synthetic dataset
-        generator = SudokuDataGenerator(fonts_folder="fonts")
+        generator = SudokuDataGenerator(fonts_folder=self.fonts_path)
         synthetic_images, synthetic_labels = generator.generate_dataset(
             n_samples_per_digit=n_samples,
             include_blank=True
@@ -237,9 +242,9 @@ class NeuralNetwork:
             labels_path: Path to .npy file containing training labels
         """
         print(f"Loading synthetic training data from {images_path}...")
-        self.training_images = np.load(images_path)
-        self.training_labels = np.load(labels_path)
-        
+        self.training_images = np.load(self.DATA_DIR / images_path)
+        self.training_labels = np.load(self.DATA_DIR / labels_path)
+
         print(f"Training images loaded: {self.training_images.shape}")
         print(f"Training labels loaded: {self.training_labels.shape}")
         
@@ -260,9 +265,9 @@ class NeuralNetwork:
             labels_path: Path to .npy file containing test labels
         """
         print(f"Loading synthetic test data from {images_path}...")
-        self.testing_images = np.load(images_path)
-        self.testing_labels = np.load(labels_path)
-        
+        self.testing_images = np.load(self.DATA_DIR / images_path)
+        self.testing_labels = np.load(self.DATA_DIR / labels_path)
+
         print(f"Test images loaded: {self.testing_images.shape}")
         print(f"Test labels loaded: {self.testing_labels.shape}")
 
@@ -440,7 +445,7 @@ class NeuralNetwork:
             self.Load_Synthetic_Training()
         else:
             # Generate new dataset
-            generator = SudokuDataGenerator(fonts_folder="fonts")
+            generator = SudokuDataGenerator(fonts_folder=str(self.fonts_path))
             
             train_images, train_labels = generator.generate_dataset(
                 n_samples_per_digit=1000,
@@ -753,7 +758,8 @@ class NeuralNetwork:
                    'bias_k': self.bias_k.tolist()}
 
         # Write the data into a new text file to prevent from overriding any current files
-        with open('weights_and_biases_IMPROVEDv2.txt', 'w') as file:
+        weights_path = self.WEIGHTS_DIR / "weights_and_biases_IMPROVEDv2.txt"
+        with open(weights_path, 'w') as file:
             file.write(json.dumps(details))
     
     def Use_Trained_Weights(self, file):
@@ -762,7 +768,17 @@ class NeuralNetwork:
         that the weights and biases to be used are currently in
         """
         # First we open the file
-        with open(file) as f:
+        if file is None:
+            file_path = self.WEIGHTS_DIR / "weights_and_biases_IMPROVEDv2.txt"
+        else:
+            file_path = Path(file)
+            if not file_path.is_absolute():
+                file_path = self.WEIGHTS_DIR / file_path
+        
+        if not file_path.exists():
+            raise FileNotFoundError(f"Weights file not found: {file_path}")
+
+        with open(file_path) as f:
             data = f.read()
 
         # Now we reconstruct the data that was found in the file back into a Python dictionary

@@ -17,6 +17,18 @@ class SudokuDataGenerator:
         Args:
             fonts_folder: Path to folder containing .ttf or .otf font files
         """
+        BASE_DIR = Path(__file__).resolve().parent
+        if fonts_folder is None:
+            self.fonts_folder = BASE_DIR / "Fonts"
+        else:
+            fonts_folder = Path(fonts_folder)
+            self.fonts_folder = (
+                fonts_folder if fonts_folder.is_absolute()
+                else BASE_DIR / fonts_folder
+            )
+
+        self.DATA_DIR = BASE_DIR / "Data"
+        self.DATA_DIR.mkdir(exist_ok=True)
         self.fonts_folder = fonts_folder
         self.font_paths = self._load_font_paths()
         
@@ -30,7 +42,7 @@ class SudokuDataGenerator:
         """
         font_paths = []
         
-        if not os.path.exists(self.fonts_folder):
+        if not self.fonts_folder.exists():
             print(f"Fonts folder '{self.fonts_folder}' not found!")
             return font_paths
         
@@ -38,11 +50,9 @@ class SudokuDataGenerator:
         font_extensions = ['.ttf', '.otf', '.TTF', '.OTF']
         
         # Walk through fonts folder (including subfolders)
-        for root, dirs, files in os.walk(self.fonts_folder):
-            for file in files:
-                if any(file.endswith(ext) for ext in font_extensions):
-                    font_path = os.path.join(root, file)
-                    font_paths.append(font_path)
+        for path in self.fonts_folder.rglob("*"):
+            if path.suffix.lower() in font_extensions:
+                font_paths.append(str(path))
         
         print(f"Found {len(font_paths)} font files in '{self.fonts_folder}'")
         
@@ -50,7 +60,7 @@ class SudokuDataGenerator:
         if font_paths:
             print("Sample fonts loaded:")
             for font in font_paths[:5]:
-                print(f"  - {os.path.basename(font)}")
+                print(f"  - {Path(font).name}")
             if len(font_paths) > 5:
                 print(f"  ... and {len(font_paths) - 5} more")
         
@@ -347,11 +357,11 @@ if __name__ == "__main__":
     generator.visualize_samples()
     
     # # Save to file for later use
-    np.save('sudoku_synthetic_images.npy', images)
-    np.save('sudoku_synthetic_labels.npy', labels)
+    np.save(generator.DATA_DIR / 'sudoku_synthetic_images.npy', images)
+    np.save(generator.DATA_DIR / 'sudoku_synthetic_labels.npy', labels)
     print("\nDataset saved to 'sudoku_synthetic_images.npy' and 'sudoku_synthetic_labels.npy'")
 
     # images, labels = generator.generate_test_dataset(n_samples_per_digit=200, include_blank=True)
-    # np.save('sudoku_test_images.npy',images)
-    # np.save('sudoku_test_labels.npy',labels)
+    # np.save(generator.DATA_DIR / 'sudoku_test_images.npy',images)
+    # np.save(generator.DATA_DIR / 'sudoku_test_labels.npy',labels)
     # print("\nDataset saved to 'sudoku_test_images.npy' and 'sudoku_test_labels.npy'")
