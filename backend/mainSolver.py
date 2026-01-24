@@ -7,6 +7,7 @@ from preProcessing import load_and_extract_sudoku
 from Segmenting import extract_cells, clean_cell
 from DLX import DLX
 from neuralNetwork import NeuralNetwork
+from pathlib import Path
 
 def image_to_array(image_path, weights_path):
     # --- 1. SETUP NEURAL NETWORK ---
@@ -148,11 +149,12 @@ def solve_sudoku(grid):
 
 if __name__ == "__main__":
     # CONFIGURATION
-    img_path = "hope.png" 
+    BASE_DIR = Path(__file__).resolve().parent
+    img_path = BASE_DIR / "hope.png" 
     weights_file = "weights_and_biases_IMPROVEDv2.txt" # Ensure this file exists!
 
     # RUN THE SOLVER
-    final_grid = image_to_array(img_path, weights_file)
+    final_grid = image_to_array(str(img_path), weights_file)
 
     if final_grid is not None:
         print_grid(final_grid)
