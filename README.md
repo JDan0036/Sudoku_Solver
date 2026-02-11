@@ -37,9 +37,10 @@ The real challenge wasn't just building a solver. It was building a robust OCR s
 - OpenCV (image preprocessing and segmentation)
 - NumPy (numerical operations and matrix manipulation)
 - Pillow (image handling)
+- Matplotlib (visualization of the images)
 
 **Machine Learning:**
-- Custom neural network implementation (no TensorFlow/PyTorch)
+- Custom neural network implementation (coded from scratch)
 - MNIST dataset + synthetic Sudoku digit generation
 - Data augmentation (rotation, scaling, elastic deformation, noise)
 
@@ -150,11 +151,10 @@ I also learned a lot about the trade-offs in algorithm design. The DLX implement
 
 There are a few areas I'd like to improve:
 
-**Better preprocessing**: Add more sophisticated noise removal and contrast enhancement to handle poor-quality images. Maybe implement CLAHE (Contrast Limited Adaptive Histogram Equalization) or other advanced techniques.
+**Better preprocessing**: Add more sophisticated noise removal and contrast enhancement to handle poor-quality images. 
 
 **Model improvements**: Experiment with convolutional layers or a small CNN architecture instead of a fully connected network. This might improve accuracy on unusual fonts.
 
-**Real-time feedback**: Add a confidence threshold system that flags low-confidence predictions and asks the user to verify them before solving.
 
 
 ---
@@ -173,4 +173,4 @@ Based on benchmark results:
 
 - Donald Knuth for the Dancing Links algorithm
 - MNIST dataset for initial training data
-- OpenCV community for excellent documentation
+- OpenCV and Matplotlib community for excellent documentation
